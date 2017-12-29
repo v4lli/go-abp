@@ -1,11 +1,11 @@
 package rdt
 
-import "bytes"
-import "encoding/binary"
-
-//import "encoding/hex"
-import "hash/crc32"
-import "fmt"
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
+)
 
 // receiver states
 const (
@@ -39,6 +39,8 @@ type Header struct {
 	Flags    uint16
 }
 
+var HeaderLength int = 8
+
 func SerializeHeader(hdr Header) []byte {
 	var bin_buf bytes.Buffer
 	binary.Write(&bin_buf, binary.BigEndian, hdr)
@@ -48,9 +50,9 @@ func SerializeHeader(hdr Header) []byte {
 func VerifyChecksum(buffer []byte) bool {
 	crc32q := crc32.MakeTable(0xD5828281)
 	var hdr Header
-	// XXX hardcoded header length not good
-	binary.Read(bytes.NewReader(buffer[:8]), binary.BigEndian, &hdr)
-	fmt.Printf("[NET] hdr.Length=%d hdr.Flags=%d\n", hdr.Length, hdr.Flags)
+	binary.Read(bytes.NewReader(buffer[:HeaderLength]), binary.BigEndian, &hdr)
+
+	//fmt.Printf("[NET] hdr.Length=%d hdr.Flags=%d\n", hdr.Length, hdr.Flags)
 
 	if int(hdr.Length) > len(buffer)-4 {
 		fmt.Printf("VerifyChecksum: hdr.Length > len(buffer)-4 !!!\n")
@@ -62,7 +64,8 @@ func VerifyChecksum(buffer []byte) bool {
 	if hdr.Checksum == calculated {
 		return true
 	} else {
-		fmt.Printf("Missmatch %x <> %x over hdrLengt=%d buflen=%d\n", hdr.Checksum, calculated, hdr.Length, len(buffer))
+		fmt.Printf("Missmatch %x <> %x over hdrLengt=%d buflen=%d\n",
+			hdr.Checksum, calculated, hdr.Length, len(buffer))
 		return false
 	}
 }

@@ -25,18 +25,21 @@ type Client struct {
 	fh          *os.File
 }
 
+var crc32q = crc32.MakeTable(0xD5828281)
+
 func reply(client *Client, flags int) {
 	checksum := rdt.Header{Length: 0, Flags: uint16(flags)}
 	serializedHeader := rdt.SerializeHeader(checksum)
 
-	crc32q := crc32.MakeTable(0xD5828281)
-
 	checksum.Checksum = crc32.Checksum(serializedHeader[:4], crc32q)
 	serializedHeader = rdt.SerializeHeader(checksum)
-	// XXX check error
-	client.conn.WriteToUDP(serializedHeader, client.remoteAddr)
-	fmt.Printf("[NET] ACK with flags=%d sent to %v\n", flags, *client.remoteAddr)
 
+	_, err := client.conn.WriteToUDP(serializedHeader, client.remoteAddr)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("[NET] ACK with flags=%d sent to %v\n", flags,
+		*client.remoteAddr)
 	armTimeout(client, 5)
 
 }
