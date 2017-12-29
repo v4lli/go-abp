@@ -33,7 +33,11 @@ func finalizePkg(hdr rdt.Header, data []byte) []byte {
 
 func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 	inputBuf := make([]byte, 8)
-	conn.ReadFromUDP(inputBuf)
+	_, _, err := conn.ReadFromUDP(inputBuf)
+
+	if err != nil {
+		panic(err)
+	}
 
 	// parse packet into rdt.Header structure
 	var replyHdr rdt.Header
@@ -43,18 +47,19 @@ func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 		return true
 	} else {
 		fmt.Printf("[NET] invalid reply; got Flags=%x, want Flags=%x...\n",
-			replyHdr.Flags)
+			replyHdr.Flags, wantFlags)
 		return false
 	}
 }
 
 func main() {
 	// command line argument handling
-	if len(os.Args) < 2 {
-		fmt.Printf("Usage: %s <filename>\n", os.Args[0])
+	if len(os.Args) != 3 {
+		fmt.Printf("Usage: %s <host:port> <filename>\n", os.Args[0])
 		os.Exit(1)
 	}
-	filename := []byte(os.Args[1])
+	host_port := os.Args[1]
+	filename := []byte(os.Args[2])
 
 	fh, err := os.Open(string(filename))
 	if err != nil {
@@ -63,7 +68,7 @@ func main() {
 	fhReader := bufio.NewReader(fh)
 
 	// XXX make configurable
-	udpAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:1234")
+	udpAddr, _ := net.ResolveUDPAddr("udp", host_port)
 	conn, err := net.DialUDP("udp", nil, udpAddr)
 	if err != nil {
 		panic(err)

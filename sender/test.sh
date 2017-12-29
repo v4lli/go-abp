@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eux
+set -ex
 
 go build
-./sender file
+openssl sha256 blob.bin
+./sender 127.0.0.1:1234 blob.bin
