@@ -1,3 +1,4 @@
 sender/sender
 receiver/receiver
 */*.swp
+receiver/blob.bin

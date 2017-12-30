@@ -43,6 +43,7 @@ func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 			// this means we hit a read timeout which was previously
 			// configured on conn. in that case, just return false
 			// (i.e. no ack received, equivalent to bad/wrong ACK).
+			fmt.Printf("[NET] hit read deadline for ACK %v\n", err)
 			return false
 		}
 		panic(err)
@@ -142,27 +143,24 @@ func main() {
 		sendbuffer = finalizePkg(outHdr, out)
 		// actually try sending out this chunk of data.
 		for {
-			cnt, err := conn.Write(sendbuffer)
-			fmt.Printf("SENT: total bytes=%d Flags=0x%x Length=%d\n",
-				cnt, outHdr.Flags, outHdr.Length)
+			_, err := conn.Write(sendbuffer)
+			//fmt.Printf("SENT: total bytes=%d Flags=0x%x Length=%d\n",
+			//	cnt, outHdr.Flags, outHdr.Length)
 			if err != nil {
 				panic(err)
 			}
+			fmt.Print(".")
 
 			// nb: if we sent Flags=ACK1|FIN, we're also expecting
 			// an ACK1|FIN reply. if we sent ACK0|FIN, we're
 			// expecting only FIN.
 			if waitForAck(conn, int(outHdr.Flags)) {
-				fmt.Printf("Received correct ACK (Flags=0x%x)\n",
-					outHdr.Flags)
 				lastState = !lastState
 				break
-			} else {
-				fmt.Print("Received invalid ACK... resending\n")
 			}
 		}
 		if readErr == io.EOF {
-			fmt.Print("FIN sent/FINACK received, terminating client.\n")
+			fmt.Print("\nFIN sent/FINACK received, terminating client.\n")
 			break
 		}
 	}

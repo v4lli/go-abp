@@ -68,7 +68,8 @@ func armTimeout(client *Client, secs int) {
 		client.activeTimer.Stop()
 	}
 	client.activeTimer = time.AfterFunc(time.Second*time.Duration(secs), func() {
-		fmt.Printf("[TIMER] Timeout hit for client %v!\n", client.remoteAddr)
+		fmt.Printf("[TIMER] Timeout hit for client %s (state=%d)!\n",
+			client.remoteAddr, client.state)
 		client.activeTimer = nil
 		fsmLookup(client.state, EVENT_TIMEOUT)(client)
 	})
@@ -96,7 +97,7 @@ func saveFilename(client *Client) {
 
 func removeClient(client *Client) {
 	fmt.Printf("[HANDLER] file %s written; set client to DEAD: %v\n",
-		client.filename, *client)
+		client.filename, client.remoteAddr)
 
 	if client.writer != nil {
 		client.writer.Flush()
@@ -117,11 +118,11 @@ func resendAck(client *Client) {
 	if client.state == STATE_WAIT_DATA1 {
 		// If we're waiting for DATA1 and get DATA0, it will
 		// trigger an ACK0 retransmit
-		fmt.Printf("[HANDLER] resend ACK0 %v\n", *client)
+		fmt.Printf("[HANDLER] resend ACK0 %v\n", client.remoteAddr)
 		go reply(client, 0)
 	} else {
 		// ... and vice versa
-		fmt.Printf("[HANDLER] resend ACK1 %v\n", *client)
+		fmt.Printf("[HANDLER] resend ACK1 %v\n", client.remoteAddr)
 		go reply(client, rdt.HDR_ALTERNATING)
 	}
 	// This doesn't change FSM state
@@ -157,7 +158,7 @@ func receiveData(client *Client) {
 	fmt.Printf("[HANDLER] got data, new state=%d\n", client.state)
 }
 
-var fsmTable [4][6](func(*Client))
+var fsmTable [5][7](func(*Client))
 
 func initFsm() {
 	fsmTable[STATE_WAIT_FILENAME][EVENT_FILENAME] = saveFilename
