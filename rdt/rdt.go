@@ -7,25 +7,6 @@ import (
 	"hash/crc32"
 )
 
-// receiver states
-const (
-	REC_WAIT_FILENAME = iota
-	REC_WAIT_DATA0
-	REC_WAIT_DATA1
-	REC_CLIENT_DEAD
-)
-
-// receiver events
-const (
-	REC_GOT_FILENAME = iota
-	REC_GOT_DATA0
-	REC_GOT_DATA1
-	REC_GOT_FIN0
-	REC_GOT_FIN1
-	REC_GOT_TIMEOUT
-	REC_CLOSED
-)
-
 // Header Flags
 const (
 	HDR_FILENAME    = 0x1
@@ -33,6 +14,7 @@ const (
 	HDR_FIN         = 0x4
 )
 
+// ABP Header structure
 type Header struct {
 	Checksum uint32
 	Length   uint16
