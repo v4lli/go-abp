@@ -220,7 +220,7 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 	var hdr rdt.Header
 	binary.Read(bytes.NewReader(buffer[:rdt.HeaderLength]), binary.BigEndian, &hdr)
 	client.lastHdr = &hdr
-	client.lastData = buffer[rdt.HeaderLength : rdt.HeaderLength+hdr.Length]
+	client.lastData = buffer[rdt.HeaderLength : uint16(rdt.HeaderLength)+hdr.Length]
 	client.remoteAddr = remoteAddr
 
 	// FINs (may still contain data!)
