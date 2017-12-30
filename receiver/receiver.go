@@ -216,11 +216,11 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 		return
 	}
 
+	// parse packet; fill client struct with seperated header + payload
 	var hdr rdt.Header
-	// XXX hardcoded header length not good
-	binary.Read(bytes.NewReader(buffer[:8]), binary.BigEndian, &hdr)
+	binary.Read(bytes.NewReader(buffer[:rdt.HeaderLength]), binary.BigEndian, &hdr)
 	client.lastHdr = &hdr
-	client.lastData = buffer[8 : 8+hdr.Length]
+	client.lastData = buffer[rdt.HeaderLength : rdt.HeaderLength+hdr.Length]
 	client.remoteAddr = remoteAddr
 
 	// FINs (may still contain data!)

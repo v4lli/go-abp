@@ -21,7 +21,8 @@ type Header struct {
 	Flags    uint16
 }
 
-var HeaderLength int = 8
+// XXX maybe calculated automatically using the unsafe-package...
+const HeaderLength int = 8
 
 func SerializeHeader(hdr Header) []byte {
 	var bin_buf bytes.Buffer
