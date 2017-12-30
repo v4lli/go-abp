@@ -10,6 +10,7 @@ import (
 	"hash/crc32"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -60,7 +61,9 @@ func saveFilename(client *Client) {
 	fmt.Printf("[HANDLER] filename=%s (len=%d)\n", client.filename,
 		client.lastHdr.Length)
 
-	// XXX sanitize filename... very insecure otherwise
+	// sanitize filename to prevent directory traversal
+	client.filename = strings.Replace(client.filename, "/", ".", -1)
+	client.filename = strings.Replace(client.filename, "\\", ".", -1)
 
 	var err error
 	client.fh, err = os.Create("./" + client.filename)
