@@ -36,6 +36,7 @@ func finalizePkg(hdr rdt.Header, data []byte) []byte {
 // is configured to do so.
 func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 	inputBuf := make([]byte, rdt.HeaderLength)
+	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, _, err := conn.ReadFromUDP(inputBuf)
 
 	if err != nil {

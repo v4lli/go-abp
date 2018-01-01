@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -59,7 +60,7 @@ func reply(client *Client, flags int) {
 	}
 	fmt.Printf("[NET] ACK with flags=%d sent to %v\n", flags,
 		*client.remoteAddr)
-	armTimeout(client, 5)
+	armTimeout(client, 10)
 
 }
 
@@ -67,9 +68,10 @@ func armTimeout(client *Client, secs int) {
 	if client.activeTimer != nil {
 		client.activeTimer.Stop()
 	}
+	timeStr := time.Now().Format(time.StampMilli)
 	client.activeTimer = time.AfterFunc(time.Second*time.Duration(secs), func() {
-		fmt.Printf("[TIMER] Timeout hit for client %s (state=%d)!\n",
-			client.remoteAddr, client.state)
+		fmt.Printf("[TIMER] Timeout hit for client %s (state=%d), set at %s!\n",
+			client.remoteAddr, client.state, timeStr)
 		client.activeTimer = nil
 		fsmLookup(client.state, EVENT_TIMEOUT)(client)
 	})
@@ -92,7 +94,7 @@ func saveFilename(client *Client) {
 	client.writer = bufio.NewWriter(client.fh)
 	client.state = STATE_WAIT_DATA1
 
-	go reply(client, 0)
+	reply(client, 0)
 }
 
 func removeClient(client *Client) {
@@ -114,16 +116,22 @@ func removeClient(client *Client) {
 	client.state = STATE_CLIENT_DEAD
 }
 
+func removeClientAndDelete(client *Client) {
+	removeClient(client)
+	fmt.Printf("[HANDLER] deleted partially received file\n")
+	os.Remove("./" + client.filename)
+}
+
 func resendAck(client *Client) {
 	if client.state == STATE_WAIT_DATA1 {
 		// If we're waiting for DATA1 and get DATA0, it will
 		// trigger an ACK0 retransmit
 		fmt.Printf("[HANDLER] resend ACK0 %v\n", client.remoteAddr)
-		go reply(client, 0)
+		reply(client, 0)
 	} else {
 		// ... and vice versa
 		fmt.Printf("[HANDLER] resend ACK1 %v\n", client.remoteAddr)
-		go reply(client, rdt.HDR_ALTERNATING)
+		reply(client, rdt.HDR_ALTERNATING)
 	}
 	// This doesn't change FSM state
 }
@@ -141,7 +149,7 @@ func writeData(client *Client) {
 func receiveLastData(client *Client) {
 	writeData(client)
 	client.state = STATE_CLOSED
-	go reply(client, int(client.lastHdr.Flags))
+	reply(client, int(client.lastHdr.Flags))
 }
 
 func receiveData(client *Client) {
@@ -150,10 +158,10 @@ func receiveData(client *Client) {
 		// If this was ACK1 we're now expecting DATA0 next, other
 		// packets will trigger an ACK1 retransmit
 		client.state = STATE_WAIT_DATA0
-		go reply(client, rdt.HDR_ALTERNATING)
+		reply(client, rdt.HDR_ALTERNATING)
 	} else {
 		client.state = STATE_WAIT_DATA1
-		go reply(client, 0)
+		reply(client, 0)
 	}
 	fmt.Printf("[HANDLER] got data, new state=%d\n", client.state)
 }
@@ -167,12 +175,12 @@ func initFsm() {
 	fsmTable[STATE_WAIT_FILENAME][EVENT_FIN1] = removeClient
 	fsmTable[STATE_WAIT_DATA0][EVENT_DATA0] = receiveData
 	fsmTable[STATE_WAIT_DATA0][EVENT_DATA1] = resendAck
-	fsmTable[STATE_WAIT_DATA0][EVENT_TIMEOUT] = removeClient
+	fsmTable[STATE_WAIT_DATA0][EVENT_TIMEOUT] = removeClientAndDelete
 	fsmTable[STATE_WAIT_DATA0][EVENT_FIN0] = receiveLastData
 	fsmTable[STATE_WAIT_DATA0][EVENT_FIN1] = resendAck
 	fsmTable[STATE_WAIT_DATA1][EVENT_DATA0] = resendAck
 	fsmTable[STATE_WAIT_DATA1][EVENT_DATA1] = receiveData
-	fsmTable[STATE_WAIT_DATA1][EVENT_TIMEOUT] = removeClient
+	fsmTable[STATE_WAIT_DATA1][EVENT_TIMEOUT] = removeClientAndDelete
 	fsmTable[STATE_WAIT_DATA1][EVENT_FIN0] = resendAck
 	fsmTable[STATE_WAIT_DATA1][EVENT_FIN1] = receiveLastData
 	fsmTable[STATE_CLOSED][EVENT_DATA0] = removeClient
@@ -189,7 +197,8 @@ func fsmLookup(state int, event int) func(*Client) {
 func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]*Client, conn *net.UDPConn) {
 	// look if we've already got one from this remoteAddr
 	if _, ok := clients[remoteAddr.String()]; ok {
-		fmt.Printf("[NET] Already seen client %s\n", remoteAddr.String())
+		//fmt.Printf("[NET] Already seen client %s\n",
+		//     remoteAddr.String())
 
 		// remove possibly dead client & retry
 		if clients[remoteAddr.String()].state == STATE_CLIENT_DEAD {
@@ -204,7 +213,7 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 			state: STATE_WAIT_FILENAME,
 			conn:  conn,
 		}
-		armTimeout(clients[remoteAddr.String()], 5)
+		armTimeout(clients[remoteAddr.String()], 10)
 		fmt.Printf("[NET] NEW client %v\n", remoteAddr)
 	}
 	client := clients[remoteAddr.String()]
@@ -260,6 +269,30 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 	}
 }
 
+func dropDatagram(buffer []byte, reinject *bool) bool {
+	dropProb := 0.1
+	duplicateProb := 0.05
+	bitFlipProb := 0.05
+	ret := false
+
+	if rand.Intn(100) < int(dropProb*100) {
+		fmt.Print("========== DROPPING PACKET ==============\n")
+		ret = true
+	}
+
+	if rand.Intn(100) < int(duplicateProb*100) {
+		fmt.Print("========== DUPLICATING PACKET ==============\n")
+		*reinject = true
+	}
+
+	if rand.Intn(100) < int(bitFlipProb*100) {
+		fmt.Print("========== INJECTING BIT ERROR ==============\n")
+		buffer[rand.Intn(len(buffer))] |= (1 << uint(rand.Intn(8)))
+	}
+
+	return ret
+}
+
 func main() {
 	initFsm()
 	dgramBuffer := make([]byte, 512)
@@ -284,6 +317,15 @@ func main() {
 		}
 		fmt.Printf("[NET] new message from %v\n", remoteaddr)
 
-		processDatagram(remoteaddr, dgramBuffer, clients, ser)
+		// For demonstration purposes: drop some datagrams and
+		// flip some bits in the payload. both things should be
+		// detected and lead to re-transmits.
+		reinject := false
+		if !dropDatagram(dgramBuffer, &reinject) {
+			processDatagram(remoteaddr, dgramBuffer, clients, ser)
+		}
+		if reinject {
+			processDatagram(remoteaddr, dgramBuffer, clients, ser)
+		}
 	}
 }
