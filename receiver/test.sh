@@ -2,5 +2,5 @@
 set -ex
 
 go build
-./receiver
+./receiver unrealiable
 sha256sum blob.bin

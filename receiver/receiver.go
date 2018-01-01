@@ -269,11 +269,15 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 	}
 }
 
-func dropDatagram(buffer []byte, reinject *bool) bool {
+func dropDatagram(enabled bool, buffer []byte, reinject *bool) bool {
 	dropProb := 0.1
 	duplicateProb := 0.05
 	bitFlipProb := 0.05
 	ret := false
+
+	if !enabled {
+		return false
+	}
 
 	if rand.Intn(100) < int(dropProb*100) {
 		fmt.Print("========== DROPPING PACKET ==============\n")
@@ -308,6 +312,12 @@ func main() {
 		return
 	}
 
+	enableLosses := false
+	if len(os.Args) > 1 {
+		fmt.Print("Enabling packet loss simulation!\n")
+		enableLosses = true
+	}
+
 	fmt.Printf("Waiting for clients on 127.0.0.1:1234...\n")
 	for {
 		// blockingly wait for new datagrams
@@ -321,7 +331,7 @@ func main() {
 		// flip some bits in the payload. both things should be
 		// detected and lead to re-transmits.
 		reinject := false
-		if !dropDatagram(dgramBuffer, &reinject) {
+		if !dropDatagram(enableLosses, dgramBuffer, &reinject) {
 			processDatagram(remoteaddr, dgramBuffer, clients, ser)
 		}
 		if reinject {
