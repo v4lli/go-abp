@@ -315,7 +315,7 @@ func dropDatagram(enabled bool, buffer []byte, reinject *bool) bool {
 
 	if rand.Intn(100) < int(bitFlipProb*100) {
 		fmt.Print("========== INJECTING BIT ERROR ==============\n")
-		buffer[rand.Intn(len(buffer))] |= (1 << uint(rand.Intn(8)))
+		buffer[rand.Intn(len(buffer))] ^= (1 << uint(rand.Intn(8)))
 	}
 
 	return ret
