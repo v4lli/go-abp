@@ -32,11 +32,11 @@ The custom header is defined as follows:
 
 ## Server (Receiver) FSM
 
-xxx
+![server fsm](https://raw.githubusercontent.com/v4lli/go-abp/master/dia/receiver.png)
 
 ## Client (Sender) FSM
 
-xxx
+![client fsm](https://raw.githubusercontent.com/v4lli/go-abp/master/dia/sender.png)
 
 # Compile and Run
 
