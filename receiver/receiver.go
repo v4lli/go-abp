@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../rdt"
+	"../abp"
 	"bufio"
 	"bytes"
 	"encoding/binary"
@@ -39,7 +39,7 @@ type Client struct {
 	filename     string
 	state        int
 	lastData     []byte
-	lastHdr      *rdt.Header
+	lastHdr      *abp.Header
 	remoteAddr   *net.UDPAddr
 	conn         *net.UDPConn
 	writer       *bufio.Writer
@@ -50,11 +50,11 @@ type Client struct {
 var crc32q = crc32.MakeTable(0xD5828281)
 
 func reply(client *Client, flags int) {
-	checksum := rdt.Header{Length: 0, Flags: uint16(flags)}
-	serializedHeader := rdt.SerializeHeader(checksum)
+	checksum := abp.Header{Length: 0, Flags: uint16(flags)}
+	serializedHeader := abp.SerializeHeader(checksum)
 
 	checksum.Checksum = crc32.Checksum(serializedHeader[:4], crc32q)
-	serializedHeader = rdt.SerializeHeader(checksum)
+	serializedHeader = abp.SerializeHeader(checksum)
 
 	_, err := client.conn.WriteToUDP(serializedHeader, client.remoteAddr)
 	if err != nil {
@@ -146,7 +146,7 @@ func writeData(client *Client) {
 func receiveLastData(client *Client) {
 	writeData(client)
 
-	if (client.lastHdr.Flags & rdt.HDR_ALTERNATING) != 0 {
+	if (client.lastHdr.Flags & abp.HDR_ALTERNATING) != 0 {
 		client.state = STATE_CLOSED1
 	} else {
 		client.state = STATE_CLOSED0
@@ -161,7 +161,7 @@ func receiveData(client *Client) {
 		// If this was ACK1 we're now expecting DATA0 next, other
 		// packets will trigger an ACK1 retransmit
 		client.state = STATE_WAIT_DATA0
-		reply(client, rdt.HDR_ALTERNATING)
+		reply(client, abp.HDR_ALTERNATING)
 	} else {
 		client.state = STATE_WAIT_DATA1
 		reply(client, 0)
@@ -244,27 +244,27 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 
 	// XXX clean up dead clients periodically
 
-	if !rdt.VerifyChecksum(buffer) {
+	if !abp.VerifyChecksum(buffer) {
 		fmt.Printf("[NET] checksum missmatch for %v discarding packet...\n",
 			client)
 		return
 	}
 
 	// parse packet; fill client struct with seperated header + payload
-	var hdr rdt.Header
-	binary.Read(bytes.NewReader(buffer[:rdt.HeaderLength]), binary.BigEndian, &hdr)
+	var hdr abp.Header
+	binary.Read(bytes.NewReader(buffer[:abp.HeaderLength]), binary.BigEndian, &hdr)
 	client.lastHdr = &hdr
-	client.lastData = buffer[rdt.HeaderLength : uint16(rdt.HeaderLength)+hdr.Length]
+	client.lastData = buffer[abp.HeaderLength : uint16(abp.HeaderLength)+hdr.Length]
 	client.remoteAddr = remoteAddr
 
 	// FINs (may still contain data!)
-	if hdr.Flags == rdt.HDR_FIN {
+	if hdr.Flags == abp.HDR_FIN {
 		fmt.Printf("[FSM] %s (state=%d) -> GOT_FIN0\n",
 			remoteAddr.String(), client.state)
 		fsmLookup(client.state, EVENT_FIN0)(client)
 		return
 	}
-	if hdr.Flags == (rdt.HDR_FIN | rdt.HDR_ALTERNATING) {
+	if hdr.Flags == (abp.HDR_FIN | abp.HDR_ALTERNATING) {
 		fmt.Printf("[FSM] %s (state=%d) -> GOT_FIN1\n",
 			remoteAddr.String(), client.state)
 		fsmLookup(client.state, EVENT_FIN1)(client)
@@ -272,14 +272,14 @@ func processDatagram(remoteAddr *net.UDPAddr, buffer []byte, clients map[string]
 	}
 
 	// FILENAME flag set + no ACK
-	if hdr.Flags == rdt.HDR_FILENAME {
+	if hdr.Flags == abp.HDR_FILENAME {
 		fmt.Printf("[FSM] %s -> GOT_FILENAME\n", remoteAddr.String())
 		fsmLookup(client.state, EVENT_FILENAME)(client)
 		return
 	}
 
 	// ACKs + data
-	if hdr.Flags == rdt.HDR_ALTERNATING {
+	if hdr.Flags == abp.HDR_ALTERNATING {
 		fmt.Printf("[FSM] %s (state=%d) -> EVENT_DATA1\n",
 			remoteAddr.String(), client.state)
 		fsmLookup(client.state, EVENT_DATA1)(client)

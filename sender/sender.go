@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../rdt"
+	"../abp"
 	"bufio"
 	"bytes"
 	"encoding/binary"
@@ -16,9 +16,9 @@ import (
 // takes a header structure and a variable-length data byte array, assembles
 // them into one big bytearray and calculates+inserts the crc32 checksum into
 // the resulting thing.
-func finalizePkg(hdr rdt.Header, data []byte) []byte {
+func finalizePkg(hdr abp.Header, data []byte) []byte {
 	crc32q := crc32.MakeTable(0xD5828281)
-	serializedHeader := rdt.SerializeHeader(hdr)
+	serializedHeader := abp.SerializeHeader(hdr)
 
 	ret := make([]byte, len(serializedHeader)+int(hdr.Length))
 	copy(ret, serializedHeader)
@@ -27,7 +27,7 @@ func finalizePkg(hdr rdt.Header, data []byte) []byte {
 	chk := crc32.Checksum(ret[4:], crc32q)
 	hdr.Checksum = chk
 
-	copy(ret, rdt.SerializeHeader(hdr))
+	copy(ret, abp.SerializeHeader(hdr))
 	return ret
 }
 
@@ -35,7 +35,7 @@ func finalizePkg(hdr rdt.Header, data []byte) []byte {
 // are equal to the flags supplied in wantFlags. may timeout if socket
 // is configured to do so.
 func waitForAck(conn *net.UDPConn, wantFlags int) bool {
-	inputBuf := make([]byte, rdt.HeaderLength)
+	inputBuf := make([]byte, abp.HeaderLength)
 	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, _, err := conn.ReadFromUDP(inputBuf)
 
@@ -50,9 +50,9 @@ func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 		panic(err)
 	}
 
-	// parse packet into rdt.Header structure
-	var replyHdr rdt.Header
-	binary.Read(bytes.NewReader(inputBuf[:rdt.HeaderLength]),
+	// parse packet into abp.Header structure
+	var replyHdr abp.Header
+	binary.Read(bytes.NewReader(inputBuf[:abp.HeaderLength]),
 		binary.BigEndian, &replyHdr)
 
 	if int(replyHdr.Flags) == wantFlags {
@@ -90,12 +90,12 @@ func main() {
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	fmt.Printf("Connected to 127.0.0.1:1234! - ")
 
-	var outHdr rdt.Header
+	var outHdr abp.Header
 	// payload size incl. header is set to <= 512 because of minimum MTU of 576
 	// minus udp header minus IP header minus some IP header options (not
 	// all 60 bytes though...)
-	maxPayload := 512 - rdt.HeaderLength
-	fmt.Printf("hdrLen=%d, max payload len=%d\n", rdt.HeaderLength, maxPayload)
+	maxPayload := 512 - abp.HeaderLength
+	fmt.Printf("hdrLen=%d, max payload len=%d\n", abp.HeaderLength, maxPayload)
 
 	// first send the file name
 	out := make([]byte, maxPayload)
@@ -103,7 +103,7 @@ func main() {
 
 	// cast is ok here because maxPayload will always be < UINT16_MAX
 	outHdr.Length = uint16(fnLen)
-	outHdr.Flags = rdt.HDR_FILENAME
+	outHdr.Flags = abp.HDR_FILENAME
 
 	// send out filename pkgs as long as we've got no ACK
 	sendbuffer := finalizePkg(outHdr, out)
@@ -131,14 +131,14 @@ func main() {
 		outHdr.Flags = 0
 
 		if !lastState {
-			outHdr.Flags |= rdt.HDR_ALTERNATING
+			outHdr.Flags |= abp.HDR_ALTERNATING
 		}
 
 		// if this was a short read (i.e. err == io.EOF) we
 		// send all data (may also be 0), possibly the ACK
 		// bit AND the FIN flag.
 		if readErr == io.EOF {
-			outHdr.Flags |= rdt.HDR_FIN
+			outHdr.Flags |= abp.HDR_FIN
 		}
 
 		sendbuffer = finalizePkg(outHdr, out)
