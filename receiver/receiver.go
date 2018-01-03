@@ -19,7 +19,8 @@ const (
 	STATE_WAIT_FILENAME = iota
 	STATE_WAIT_DATA0
 	STATE_WAIT_DATA1
-	STATE_CLOSED
+	STATE_CLOSED0
+	STATE_CLOSED1
 	STATE_CLIENT_DEAD
 )
 
@@ -34,15 +35,16 @@ const (
 )
 
 type Client struct {
-	activeTimer *time.Timer
-	filename    string
-	state       int
-	lastData    []byte
-	lastHdr     *rdt.Header
-	remoteAddr  *net.UDPAddr
-	conn        *net.UDPConn
-	writer      *bufio.Writer
-	fh          *os.File
+	activeTimer  *time.Timer
+	filename     string
+	state        int
+	lastData     []byte
+	lastHdr      *rdt.Header
+	remoteAddr   *net.UDPAddr
+	conn         *net.UDPConn
+	writer       *bufio.Writer
+	fh           *os.File
+	lastOutFlags int
 }
 
 var crc32q = crc32.MakeTable(0xD5828281)
@@ -60,8 +62,12 @@ func reply(client *Client, flags int) {
 	}
 	fmt.Printf("[NET] ACK with flags=%d sent to %v\n", flags,
 		*client.remoteAddr)
-	armTimeout(client, 10)
 
+	// save last flags in case we need to resend an ACK later
+	client.lastOutFlags = flags
+
+	// 10 second timeout which will mark the client as dead
+	armTimeout(client, 10)
 }
 
 func armTimeout(client *Client, secs int) {
@@ -123,16 +129,7 @@ func removeClientAndDelete(client *Client) {
 }
 
 func resendAck(client *Client) {
-	if client.state == STATE_WAIT_DATA1 {
-		// If we're waiting for DATA1 and get DATA0, it will
-		// trigger an ACK0 retransmit
-		fmt.Printf("[HANDLER] resend ACK0 %v\n", client.remoteAddr)
-		reply(client, 0)
-	} else {
-		// ... and vice versa
-		fmt.Printf("[HANDLER] resend ACK1 %v\n", client.remoteAddr)
-		reply(client, rdt.HDR_ALTERNATING)
-	}
+	reply(client, client.lastOutFlags)
 	// This doesn't change FSM state
 }
 
@@ -148,7 +145,13 @@ func writeData(client *Client) {
 
 func receiveLastData(client *Client) {
 	writeData(client)
-	client.state = STATE_CLOSED
+
+	if (client.lastHdr.Flags & rdt.HDR_ALTERNATING) != 0 {
+		client.state = STATE_CLOSED1
+	} else {
+		client.state = STATE_CLOSED0
+	}
+
 	reply(client, int(client.lastHdr.Flags))
 }
 
@@ -169,25 +172,46 @@ func receiveData(client *Client) {
 var fsmTable [5][7](func(*Client))
 
 func initFsm() {
+	fsmTable[STATE_WAIT_FILENAME][EVENT_DATA0] = removeClientAndDelete
+	fsmTable[STATE_WAIT_FILENAME][EVENT_DATA1] = removeClientAndDelete
 	fsmTable[STATE_WAIT_FILENAME][EVENT_FILENAME] = saveFilename
-	fsmTable[STATE_WAIT_FILENAME][EVENT_TIMEOUT] = resendAck
-	fsmTable[STATE_WAIT_FILENAME][EVENT_FIN0] = removeClient
-	fsmTable[STATE_WAIT_FILENAME][EVENT_FIN1] = removeClient
+	fsmTable[STATE_WAIT_FILENAME][EVENT_FIN0] = removeClientAndDelete
+	fsmTable[STATE_WAIT_FILENAME][EVENT_FIN1] = removeClientAndDelete
+	fsmTable[STATE_WAIT_FILENAME][EVENT_TIMEOUT] = removeClientAndDelete
+
 	fsmTable[STATE_WAIT_DATA0][EVENT_DATA0] = receiveData
 	fsmTable[STATE_WAIT_DATA0][EVENT_DATA1] = resendAck
 	fsmTable[STATE_WAIT_DATA0][EVENT_TIMEOUT] = removeClientAndDelete
 	fsmTable[STATE_WAIT_DATA0][EVENT_FIN0] = receiveLastData
-	fsmTable[STATE_WAIT_DATA0][EVENT_FIN1] = resendAck
+	// can't happen because we would already be in CLOSED1 if we
+	// already got a FIN1 -> error:
+	fsmTable[STATE_WAIT_DATA0][EVENT_FIN1] = removeClientAndDelete
+	// can't happen because WAIT_FILENAME can only transition to
+	// WAIT_DATA1, not WAIT_DATA0:
+	fsmTable[STATE_WAIT_DATA0][EVENT_FILENAME] = removeClientAndDelete
+
 	fsmTable[STATE_WAIT_DATA1][EVENT_DATA0] = resendAck
 	fsmTable[STATE_WAIT_DATA1][EVENT_DATA1] = receiveData
-	fsmTable[STATE_WAIT_DATA1][EVENT_TIMEOUT] = removeClientAndDelete
-	fsmTable[STATE_WAIT_DATA1][EVENT_FIN0] = resendAck
+	fsmTable[STATE_WAIT_DATA1][EVENT_FILENAME] = resendAck
+	// can't happen because we would already be in CLOSED0 if we
+	// already got a FIN0 -> error:
+	fsmTable[STATE_WAIT_DATA1][EVENT_FIN0] = removeClientAndDelete
 	fsmTable[STATE_WAIT_DATA1][EVENT_FIN1] = receiveLastData
-	fsmTable[STATE_CLOSED][EVENT_DATA0] = removeClient
-	fsmTable[STATE_CLOSED][EVENT_DATA1] = removeClient
-	fsmTable[STATE_CLOSED][EVENT_FIN0] = resendAck
-	fsmTable[STATE_CLOSED][EVENT_FIN1] = resendAck
-	fsmTable[STATE_CLOSED][EVENT_TIMEOUT] = removeClient
+	fsmTable[STATE_WAIT_DATA1][EVENT_TIMEOUT] = removeClientAndDelete
+
+	fsmTable[STATE_CLOSED0][EVENT_DATA0] = removeClientAndDelete
+	fsmTable[STATE_CLOSED0][EVENT_DATA1] = removeClientAndDelete
+	fsmTable[STATE_CLOSED0][EVENT_FILENAME] = removeClientAndDelete
+	fsmTable[STATE_CLOSED0][EVENT_FIN0] = resendAck
+	fsmTable[STATE_CLOSED0][EVENT_FIN1] = removeClientAndDelete
+	fsmTable[STATE_CLOSED0][EVENT_TIMEOUT] = removeClient
+
+	fsmTable[STATE_CLOSED1][EVENT_DATA0] = removeClientAndDelete
+	fsmTable[STATE_CLOSED1][EVENT_DATA1] = removeClientAndDelete
+	fsmTable[STATE_CLOSED1][EVENT_FILENAME] = removeClientAndDelete
+	fsmTable[STATE_CLOSED1][EVENT_FIN0] = removeClientAndDelete
+	fsmTable[STATE_CLOSED1][EVENT_FIN1] = resendAck
+	fsmTable[STATE_CLOSED1][EVENT_TIMEOUT] = removeClient
 }
 
 func fsmLookup(state int, event int) func(*Client) {
