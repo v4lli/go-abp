@@ -36,7 +36,7 @@ func finalizePkg(hdr abp.Header, data []byte) []byte {
 // is configured to do so.
 func waitForAck(conn *net.UDPConn, wantFlags int) bool {
 	inputBuf := make([]byte, abp.HeaderLength)
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	_, _, err := conn.ReadFromUDP(inputBuf)
 
 	if err != nil {
@@ -120,6 +120,12 @@ func main() {
 		}
 	}
 
+	// start calculating goodput from here on
+	startTime := time.Now().UnixNano()
+	lastTimeCalculation := startTime
+	var bytesSent int64
+	bytesSent = 0
+
 	// this is our alternating-bit-indicator
 	lastState := false
 	// we can now start sending actual data
@@ -160,6 +166,15 @@ func main() {
 				break
 			}
 		}
+
+		bytesSent += int64(outHdr.Length)
+		now := time.Now().UnixNano()
+		if lastTimeCalculation < (now - int64(time.Second)) {
+			lastTimeCalculation = now
+			fmt.Printf("\nGoodput: ~%.2f KB/s\n",
+				float64(bytesSent/((now-startTime)/int64(time.Second)))/1024)
+		}
+
 		if readErr == io.EOF {
 			fmt.Print("\nFIN sent/FINACK received, terminating client.\n")
 			break
