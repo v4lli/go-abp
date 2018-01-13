@@ -97,6 +97,8 @@ func main() {
 	maxPayload := 512 - abp.HeaderLength
 	fmt.Printf("hdrLen=%d, max payload len=%d\n", abp.HeaderLength, maxPayload)
 
+	// FSM event: StartProgramm
+
 	// first send the file name
 	out := make([]byte, maxPayload)
 	fnLen := copy(out, filename)
@@ -108,6 +110,7 @@ func main() {
 	// send out filename pkgs as long as we've got no ACK
 	sendbuffer := finalizePkg(outHdr, out)
 	for {
+		// FSM event: sendFilename
 		_, err := conn.Write(sendbuffer)
 		if err != nil {
 			panic(err)
@@ -115,6 +118,7 @@ func main() {
 		fmt.Printf("Sent FILENAME packet with %d bytes (Flags=0x%x).\n",
 			len(sendbuffer), outHdr.Flags)
 
+		// FSM state transition: WAIT_FILENAME_ACK
 		if waitForAck(conn, 0) {
 			break
 		}
@@ -150,9 +154,9 @@ func main() {
 		sendbuffer = finalizePkg(outHdr, out)
 		// actually try sending out this chunk of data.
 		for {
+			// FSM event: sendData
 			_, err := conn.Write(sendbuffer)
-			//fmt.Printf("SENT: total bytes=%d Flags=0x%x Length=%d\n",
-			//	cnt, outHdr.Flags, outHdr.Length)
+
 			if err != nil {
 				panic(err)
 			}
@@ -161,6 +165,9 @@ func main() {
 			// nb: if we sent Flags=ACK1|FIN, we're also expecting
 			// an ACK1|FIN reply. if we sent ACK0|FIN, we're
 			// expecting only FIN.
+			// FSM state transition: WAIT_ACK_1 || WAIT_ACK_0
+			//                       || WAIT_FIN_ACK1
+			//                       || WAIT_FIN_ACK0
 			if waitForAck(conn, int(outHdr.Flags)) {
 				lastState = !lastState
 				break
@@ -182,4 +189,5 @@ func main() {
 	}
 
 	conn.Close()
+	// FSM state transition: PROGRAM_TERMINATED
 }
